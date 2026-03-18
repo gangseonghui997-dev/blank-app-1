@@ -43,9 +43,21 @@ def load_air_data(file_path):
 
 # 데이터 로드 시도
 try:
-    df = load_air_data('202501-air.csv')
+    import os
+    # 스크립트 파일의 위치를 기준으로 CSV 파일 경로 설정 (가장 확실한 방법)
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(current_dir, '202501-air.csv')
+    
+    # 만약 파일이 없으면 원래 보여주던 경로도 확인 시도
+    if not os.path.exists(file_path):
+        file_path = r'C:\anti\0318_3\202501-air.csv'
+        
+    df = load_air_data(file_path)
 except Exception as e:
+    import os
     st.error(f"데이터 로드 실패: {e}")
+    st.write(f"현재 실행 경로 (CWD): {os.getcwd()}")
+    st.write(f"스크립트 위치: {os.path.dirname(os.path.abspath(__file__))}")
     st.stop()
 
 # 3. 사이드바 구성
