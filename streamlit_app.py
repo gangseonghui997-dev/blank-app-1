@@ -2,236 +2,80 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-st.set_page_config(
-    page_title="대기질 시각화 대시보드",
-    page_icon="🌫️",
-    layout="wide"
-)
+# 1. 페이지 설정
+st.set_page_config(page_title="2025 미세먼지 시각화 대시보드", layout="wide")
 
-# -----------------------------
-# 데이터 로드
-# -----------------------------
+# 2. 데이터 로드 (캐싱을 통해 속도 향상)
 @st.cache_data
-def load_data(file_path: str):
-    df = pd.read_csv(file_path)
-
-    # 측정일시 파싱: 예) 2025010101 -> 2025-01-01 01:00
-    df["측정일시"] = pd.to_datetime(df["측정일시"].astype(str), format="%Y%m%d%H", errors="coerce")
-
-    # 파생 컬럼
-    df["date"] = df["측정일시"].dt.date
-    df["hour"] = df["측정일시"].dt.hour
-
-    # 숫자형 처리
-    pollutant_cols = ["SO2", "CO", "O3", "NO2", "PM10", "PM25"]
-    for col in pollutant_cols:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
+def load_data():
+    # 데이터 읽기 (제공된 파일 형식에 맞춰 로드)
+    df = pd.read_csv("202501-air.csv")
+    
+    # 측정일시를 datetime 객체로 변환 (예: 2025010101 -> 2025-01-01 01:00)
+    df['측정일시'] = pd.to_datetime(df['측정일시'], format='%Y%m%d%H')
+    
+    # '지역'에서 시/도 정보 추출 (첫 번째 단어)
+    df['시도'] = df['지역'].apply(lambda x: x.split()[0])
     return df
 
-# 파일 경로
-FILE_PATH = "202501-air.csv"
-df = load_data(FILE_PATH)
+try:
+    df = load_data()
 
-st.title("🌫️ 2025년 1월 대기질 시각화 대시보드")
-st.caption("업로드된 CSV 파일 기반 Streamlit 대시보드")
-
-# -----------------------------
-# 사이드바 필터
-# -----------------------------
-st.sidebar.header("필터")
-
-region_list = sorted(df["지역"].dropna().unique().tolist())
-selected_regions = st.sidebar.multiselect(
-    "지역 선택",
-    options=region_list,
-    default=region_list[:5] if len(region_list) >= 5 else region_list
-)
-
-filtered_df = df.copy()
-if selected_regions:
-    filtered_df = filtered_df[filtered_df["지역"].isin(selected_regions)]
-
-station_list = sorted(filtered_df["측정소명"].dropna().unique().tolist())
-selected_stations = st.sidebar.multiselect(
-    "측정소 선택",
-    options=station_list,
-    default=station_list[:10] if len(station_list) >= 10 else station_list
-)
-
-if selected_stations:
-    filtered_df = filtered_df[filtered_df["측정소명"].isin(selected_stations)]
-
-pollutant = st.sidebar.selectbox(
-    "오염물질 선택",
-    ["PM25", "PM10", "O3", "NO2", "CO", "SO2"],
-    index=0
-)
-
-date_range = st.sidebar.date_input(
-    "날짜 범위 선택",
-    value=(filtered_df["date"].min(), filtered_df["date"].max())
-)
-
-if isinstance(date_range, tuple) and len(date_range) == 2:
-    start_date, end_date = date_range
-    filtered_df = filtered_df[
-        (filtered_df["date"] >= start_date) & (filtered_df["date"] <= end_date)
-    ]
-
-# 데이터 없을 때
-if filtered_df.empty:
-    st.warning("선택한 조건에 맞는 데이터가 없습니다.")
-    st.stop()
-
-# -----------------------------
-# KPI
-# -----------------------------
-col1, col2, col3, col4 = st.columns(4)
-
-avg_val = filtered_df[pollutant].mean()
-max_val = filtered_df[pollutant].max()
-min_val = filtered_df[pollutant].min()
-obs_count = len(filtered_df)
-
-col1.metric(f"{pollutant} 평균", f"{avg_val:.3f}")
-col2.metric(f"{pollutant} 최대", f"{max_val:.3f}")
-col3.metric(f"{pollutant} 최소", f"{min_val:.3f}")
-col4.metric("측정 건수", f"{obs_count:,}")
-
-st.markdown("---")
-
-# -----------------------------
-# 시간대별 평균
-# -----------------------------
-hourly_df = (
-    filtered_df.groupby("hour", as_index=False)[pollutant]
-    .mean()
-    .sort_values("hour")
-)
-
-fig_hour = px.line(
-    hourly_df,
-    x="hour",
-    y=pollutant,
-    markers=True,
-    title=f"시간대별 평균 {pollutant}"
-)
-fig_hour.update_layout(
-    xaxis_title="시간",
-    yaxis_title=f"{pollutant} 평균 농도"
-)
-
-# -----------------------------
-# 일자별 평균
-# -----------------------------
-daily_df = (
-    filtered_df.groupby("date", as_index=False)[pollutant]
-    .mean()
-    .sort_values("date")
-)
-
-fig_daily = px.line(
-    daily_df,
-    x="date",
-    y=pollutant,
-    markers=True,
-    title=f"일자별 평균 {pollutant}"
-)
-fig_daily.update_layout(
-    xaxis_title="날짜",
-    yaxis_title=f"{pollutant} 평균 농도"
-)
-
-left, right = st.columns(2)
-with left:
-    st.plotly_chart(fig_hour, use_container_width=True)
-with right:
-    st.plotly_chart(fig_daily, use_container_width=True)
-
-# -----------------------------
-# 지역별 평균 비교
-# -----------------------------
-region_avg_df = (
-    filtered_df.groupby("지역", as_index=False)[pollutant]
-    .mean()
-    .sort_values(pollutant, ascending=False)
-)
-
-fig_region = px.bar(
-    region_avg_df,
-    x="지역",
-    y=pollutant,
-    title=f"지역별 평균 {pollutant}",
-    text_auto=".2f"
-)
-fig_region.update_layout(
-    xaxis_title="지역",
-    yaxis_title=f"{pollutant} 평균 농도"
-)
-
-st.plotly_chart(fig_region, use_container_width=True)
-
-# -----------------------------
-# 측정소별 평균 비교 (상위 20개)
-# -----------------------------
-station_avg_df = (
-    filtered_df.groupby(["지역", "측정소명"], as_index=False)[pollutant]
-    .mean()
-    .sort_values(pollutant, ascending=False)
-    .head(20)
-)
-
-station_avg_df["라벨"] = station_avg_df["지역"] + " / " + station_avg_df["측정소명"]
-
-fig_station = px.bar(
-    station_avg_df,
-    x="라벨",
-    y=pollutant,
-    title=f"측정소별 평균 {pollutant} 상위 20개",
-    text_auto=".2f"
-)
-fig_station.update_layout(
-    xaxis_title="측정소",
-    yaxis_title=f"{pollutant} 평균 농도"
-)
-
-st.plotly_chart(fig_station, use_container_width=True)
-
-# -----------------------------
-# 선택 지역별 추이 비교
-# -----------------------------
-if len(selected_regions) >= 1:
-    region_daily_compare = (
-        filtered_df.groupby(["date", "지역"], as_index=False)[pollutant]
-        .mean()
-        .sort_values("date")
+    # 3. 사이드바 - 필터링
+    st.sidebar.header("🔍 필터 설정")
+    selected_sido = st.sidebar.multiselect(
+        "확인하고 싶은 시/도를 선택하세요",
+        options=df['시도'].unique(),
+        default=['서울']
     )
 
-    fig_compare = px.line(
-        region_daily_compare,
-        x="date",
-        y=pollutant,
-        color="지역",
-        title=f"지역별 일자 추이 비교 - {pollutant}"
-    )
-    fig_compare.update_layout(
-        xaxis_title="날짜",
-        yaxis_title=f"{pollutant} 평균 농도"
-    )
+    filtered_df = df[df['시도'].isin(selected_sido)]
 
-    st.plotly_chart(fig_compare, use_container_width=True)
+    # 4. 메인 화면 구성
+    st.title("🌬️ 2025년 1월 전국 대기질 분석 대시보드")
+    st.markdown(f"선택된 지역의 **미세먼지(PM10)** 및 **초미세먼지(PM2.5)** 현황을 시각화합니다.")
 
-# -----------------------------
-# 원본 데이터
-# -----------------------------
-st.subheader("원본 데이터")
-show_cols = [
-    "지역", "측정소명", "측정일시",
-    "SO2", "CO", "O3", "NO2", "PM10", "PM25", "주소"
-]
-st.dataframe(
-    filtered_df[show_cols].sort_values("측정일시"),
-    use_container_width=True,
-    height=500
-)
+    # KPI 지표 (평균 농도)
+    col1, col2, col3 = st.columns(3)
+    avg_pm10 = filtered_df['PM10'].mean()
+    avg_pm25 = filtered_df['PM25'].mean()
+    
+    col1.metric("평균 PM10", f"{avg_pm10:.2f} ㎍/㎥")
+    col2.metric("평균 PM25", f"{avg_pm25:.2f} ㎍/㎥")
+    col3.metric("총 측정 데이터 수", f"{len(filtered_df):,}건")
+
+    st.divider()
+
+    # 5. 시각화 - 시계열 차트
+    st.subheader("📈 시간별 농도 변화 추이")
+    pollutant = st.selectbox("분석할 오염물질 선택", ['PM10', 'PM25', 'O3', 'NO2'])
+    
+    # 지역별로 묶어서 시계열 그래프 생성
+    fig_line = px.line(
+        filtered_df, 
+        x='측정일시', 
+        y=pollutant, 
+        color='측정소명',
+        title=f"지역별 {pollutant} 변화량",
+        template="plotly_white"
+    )
+    st.plotly_chart(fig_line, use_container_width=True)
+
+    # 6. 시각화 - 지역별 비교 (Box Plot)
+    st.subheader("📊 지역별 농도 분포 비교")
+    fig_box = px.box(
+        filtered_df, 
+        x='시도', 
+        y=pollutant, 
+        color='시도',
+        points="all",
+        title=f"시도별 {pollutant} 통계량"
+    )
+    st.plotly_chart(fig_box, use_container_width=True)
+
+    # 7. 데이터 테이블 보기
+    if st.checkbox("전체 데이터 테이블 표시"):
+        st.dataframe(filtered_df)
+
+except FileNotFoundError:
+    st.error("데이터 파일(202501-air.csv)을 찾을 수 없습니다. 파일 이름을 확인해 주세요.")
